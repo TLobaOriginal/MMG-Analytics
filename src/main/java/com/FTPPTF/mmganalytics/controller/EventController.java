@@ -9,26 +9,48 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.FTPPTF.mmganalytics.model.SubscriptionEvent;
-import com.FTPPTF.mmganalytics.repository.SubscriptionEventRepository;
+import com.FTPPTF.mmganalytics.service.EventService;
+
+/** WILL HANDLE THE HTTP 
+ * We can test servie without HTTP
+ * Logic no longer in controllers
+*/
 
 @RestController
 @RequestMapping("/events")
 public class EventController {
+    /** Controller --> Repo --> DB
+     * private final SubscriptionEventRepository repo;
     
-    private final SubscriptionEventRepository repo;
+        public EventController(SubscriptionEventRepository repo){
+            this.repo = repo;
+        }
+
+        @PostMapping
+        public SubscriptionEvent create(@RequestBody SubscriptionEvent event){
+            event.setTimeStamp(Instant.now());
+            return repo.save(event);
+        }
+
+        @GetMapping
+        public List<SubscriptionEvent> getAll(){
+            return repo.findAll();
+        }
+     */
     
-    public EventController(SubscriptionEventRepository repo){
-        this.repo = repo;
+    private final EventService service;
+    
+    public EventController(EventService service){
+        this.service = service;
     }
 
     @PostMapping
     public SubscriptionEvent create(@RequestBody SubscriptionEvent event){
-        event.setTimeStamp(Instant.now());
-        return repo.save(event);
+        return service.createEvent(event);
     }
 
     @GetMapping
     public List<SubscriptionEvent> getAll(){
-        return repo.findAll();
+        return service.getAllEvents();
     }
 }
