@@ -15,16 +15,11 @@ public class AnalyticsService {
     }
 
     public long getTotalSubscriptions(){ //Stream allows for operations
-        return repository.findAll().stream()
-        .filter(e -> "SUBSCRIBE"
-        .equals(e.getEventType()))
-        .count();
+        return repository.countByEventType("SUBSCRIBE");
     }
 
     public long getTotalUnsubscriptions(){
-        return repository.findAll().stream()
-        .filter(e -> "UNSUBSCRIBE".equals(e.getEventType()))
-        .count();
+        return repository.countByEventType("UBSUBSCRIBE");
     }
 
     public long getNetGrowth(){
