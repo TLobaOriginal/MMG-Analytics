@@ -1,4 +1,4 @@
-package com.example.FTPPTF;
+package com.FTPPTF.mmganalytics;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;

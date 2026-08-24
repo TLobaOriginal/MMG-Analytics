@@ -8,7 +8,7 @@ import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.Id;
 /**
  * 
- * SubscriptionEvent
+ * SubscriptionEvent (DATABASE)
  * Including...
  * Id
  * eventType (SUBSCRIBE / UNSUBSCRIBE)
