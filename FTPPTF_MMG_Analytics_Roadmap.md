@@ -311,15 +311,9 @@ AnalyticsEventListener
 
 # Phase 4.5 / 4.6 — Prove the Event Flow
 
-**Status: 🟡 CURRENT WORK**
+**Status: ✅ COMPLETE**
 
-We created:
-
-```text
-src/test/java/com/FTPPTF/mmganalytics/events/EventFlowTest.java
-```
-
-The initial version contained:
+`EventFlowTest` originally contained:
 
 ```java
 assertTrue(true);
@@ -327,12 +321,12 @@ assertTrue(true);
 
 which was deliberately identified as insufficient because it doesn't actually prove that the event was received.
 
-We are currently improving this test so that it verifies the actual event pipeline.
+It was rewritten to register its own recording listener (an `@EventListener`-based bean, defined in a `@TestConfiguration` inside the test) that captures whatever `SubscriptionCreatedEvent` reaches the Spring event bus. An earlier attempt used `ApplicationListener<SubscriptionCreatedEvent>` directly, which does not compile — `ApplicationListener<E>` requires `E extends ApplicationEvent`, and domain events are deliberately plain POJOs (see Principle 2). The `@EventListener` annotation form supports arbitrary event types, so that's what the recording listener uses.
 
-The intended test should prove:
+The test proves the full pipeline:
 
 ```text
-SubscriptionService
+SubscriptionService.createSubscription()
         |
         v
 EventPublisher
@@ -344,22 +338,17 @@ SubscriptionCreatedEvent
 Spring Event Bus
         |
         v
-AnalyticsEventListener
+Recording listener (test-only) — proves any real @EventListener bean, including
+                                   AnalyticsEventListener, would receive the same event
 ```
 
-and specifically verify that the listener actually received the event.
-
-We discussed temporarily using an `AtomicInteger` inside `AnalyticsEventListener` to count received events, but this is not necessarily the final production-quality testing approach.
-
-**Current immediate task:**
-
-Finish a meaningful `EventFlowTest` that genuinely verifies event delivery.
+The `AtomicInteger`-in-the-production-listener approach discussed earlier was not used — a duplicate listener class had been created while experimenting with it (a typo'd `AnalyticsEvenetListener.java`, double-handling every event alongside the real `AnalyticsEventListener`) and was deleted once the real test made it unnecessary.
 
 ---
 
 # Current Project Structure
 
-The important structure should now resemble:
+The structure now looks like:
 
 ```text
 src
@@ -372,12 +361,17 @@ src
 │                   ├── controller
 │                   │
 │                   ├── service
-│                   │   └── SubscriptionService.java
+│                   │   ├── SubscriptionService.java
+│                   │   ├── AnalyticsService.java
+│                   │   └── AnalyticsSnapshot.java        (in-memory record)
 │                   │
 │                   ├── model
-│                   │   └── SubscriptionEvent.java
+│                   │   ├── SubscriptionEvent.java
+│                   │   └── AnalyticsSnapshotEntity.java  (persisted form)
 │                   │
 │                   ├── repository
+│                   │   ├── SubscriptionEventRepository.java
+│                   │   └── AnalyticsSnapshotRepository.java
 │                   │
 │                   ├── events
 │                   │   ├── SubscriptionCreatedEvent.java
@@ -396,41 +390,20 @@ src
                 └── mmganalytics
                     ├── FtpptfApplicationTests.java
                     │
-                    └── events
-                        └── EventFlowTest.java
+                    ├── events
+                    │   └── EventFlowTest.java
+                    │
+                    └── service
+                        └── AnalyticsServiceTest.java
 ```
-
----
-
-# Phase 4 Remaining Work
-
-After we successfully prove the event flow, the remaining Phase 4 work should progress roughly as follows.
-
-## 4.6 — Proper Event Flow Test
-
-**Current task**
-
-Create a real integration test proving:
-
-```text
-createSubscription()
-        ↓
-event published
-        ↓
-listener receives event
-```
-
-Not merely "the application didn't crash."
 
 ---
 
 ## 4.7 — Make AnalyticsEventListener Actually Do Analytics Work
 
-Currently it is primarily a demonstration listener.
+**Status: ✅ COMPLETE**
 
-Next, it should hand the event to the analytics layer.
-
-Conceptually:
+`AnalyticsEventListener` now constructor-injects `AnalyticsService` and delegates to it instead of just logging:
 
 ```text
 SubscriptionCreatedEvent
@@ -439,50 +412,44 @@ SubscriptionCreatedEvent
 AnalyticsEventListener
           |
           v
-AnalyticsService
+AnalyticsService.recordSubscriptionCreated(event)
           |
           v
-Update analytics state
+Persists a SubscriptionEvent row (eventType translated to "SUBSCRIBE")
 ```
 
-This separates:
+Worth noting: the domain event's `eventType` (`"SUBSCRIPTION_CREATED"`) and the DB model's `eventType` (`"SUBSCRIBE"` / `"UNSUBSCRIBE"`) are different vocabularies that happen to share a field name. `AnalyticsService` is the explicit translation boundary between them — it does not pass the domain event's string straight through.
 
-- event reception
-- analytics/business logic
+Proven by `AnalyticsServiceTest`, which asserts `getTotalSubscriptions()`/`getNetGrowth()` change by the expected delta after calling `createSubscription()` — not just that nothing crashed.
 
 ---
 
 ## 4.8 — Introduce Analytics State/Snapshot
 
-We need to establish what we're actually measuring.
+**Status: ✅ COMPLETE**
 
-For example:
+Added `AnalyticsSnapshot` (a Java `record` in the `service` package) with the minimal aggregate scope decided on: `totalSubscriptions`, `totalUnsubscriptions`, `netGrowth`, `generatedAt`. Broader scope (per-user breakdown, time-windowed buckets) was considered and deliberately deferred — the roadmap's own principle is not to pull time-series concerns in prematurely.
 
-```text
-total subscriptions
-subscriptions per time period
-subscriptions per user
-event counts
-etc.
-```
-
-The exact analytics model should be established before introducing the time-series database.
+`AnalyticsService.getSnapshot()` builds one by composing the existing read methods plus a timestamp. It is computed fresh on every call — nothing is cached or stored yet.
 
 ---
 
 ## 4.9 — Persistence of Analytics
 
-Introduce the persistence layer for the analytics data/snapshots.
+**Status: 🟡 FIRST CUT COMPLETE — trigger strategy still open**
 
-This is where the project starts moving toward the eventual comparison/use of:
+Added the persisted counterpart to `AnalyticsSnapshot`:
 
 ```text
-Kafka
-vs
-InfluxDB
+AnalyticsSnapshot (in-memory)  →  AnalyticsSnapshotEntity (JPA, model package)
+                                          |
+                                          v
+                                 AnalyticsSnapshotRepository
 ```
 
-Kafka and InfluxDB have different responsibilities, so they should **not** be treated as direct substitutes.
+`AnalyticsService.saveSnapshot()` computes a snapshot and writes it — **on demand only**. This was a deliberate choice among three options (on-demand, save-per-event, scheduled): saving per-event was rejected because a snapshot represents a point-in-time rollup, not a per-event record; scheduled was rejected as premature infrastructure ahead of the InfluxDB decision. On-demand-only means the persisted snapshot history is currently empty — nothing calls `saveSnapshot()` in production code yet.
+
+**Open decision:** what should actually trigger `saveSnapshot()` — event-driven, scheduled, or something else — is deferred, and is tied directly to the Kafka-vs-InfluxDB direction below. Don't assume an answer here; it needs to be decided deliberately, the same way the scope and trigger-type questions above were.
 
 ---
 
@@ -633,6 +600,6 @@ Then replace the appropriate infrastructure with Kafka/InfluxDB.
 
 # Current Status in One Line
 
-**Phases 1–3 are complete; Phase 4.1–4.4 are complete; we are currently finishing Phase 4.6 by writing a real integration test proving that `SubscriptionService` publishes `SubscriptionCreatedEvent` and `AnalyticsEventListener` receives it.**
+**Phases 1–3 are complete; Phase 4.1–4.9 are complete through the first cut of snapshot persistence (`AnalyticsService.saveSnapshot()`, on-demand only, nothing calls it automatically yet).**
 
-Once that test passes, **do not jump straight to Kafka**. The next step is to make the listener feed a proper analytics service/state model, then establish the analytics persistence requirements before introducing the infrastructure technologies.
+**Do not jump straight to Kafka.** The next decision is what triggers `saveSnapshot()` to actually run — that choice is what determines how the Kafka-vs-InfluxDB split gets introduced, so it should be made deliberately rather than assumed.
