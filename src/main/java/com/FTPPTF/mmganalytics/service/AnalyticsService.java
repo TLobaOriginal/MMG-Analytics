@@ -2,7 +2,9 @@ package com.FTPPTF.mmganalytics.service;
 import org.springframework.stereotype.Service;
 
 import com.FTPPTF.mmganalytics.events.SubscriptionCreatedEvent;
+import com.FTPPTF.mmganalytics.model.AnalyticsSnapshotEntity;
 import com.FTPPTF.mmganalytics.model.SubscriptionEvent;
+import com.FTPPTF.mmganalytics.repository.AnalyticsSnapshotRepository;
 import com.FTPPTF.mmganalytics.repository.SubscriptionEventRepository;
 
 import java.time.Instant;
@@ -11,9 +13,11 @@ import java.time.ZoneId;
 @Service
 public class AnalyticsService {
     private final SubscriptionEventRepository repository;
+    private final AnalyticsSnapshotRepository snapshotRepository;
 
-    public AnalyticsService(SubscriptionEventRepository repository){
+    public AnalyticsService(SubscriptionEventRepository repository, AnalyticsSnapshotRepository snapshotRepository){
         this.repository = repository;
+        this.snapshotRepository = snapshotRepository;
     }
 
     public void recordSubscriptionCreated(SubscriptionCreatedEvent event) {
@@ -43,5 +47,16 @@ public class AnalyticsService {
             getNetGrowth(),
             Instant.now()
         );
+    }
+
+    public AnalyticsSnapshotEntity saveSnapshot() {
+        AnalyticsSnapshot snapshot = getSnapshot();
+        AnalyticsSnapshotEntity entity = new AnalyticsSnapshotEntity(
+            snapshot.totalSubscriptions(),
+            snapshot.totalUnsubscriptions(),
+            snapshot.netGrowth(),
+            snapshot.generatedAt()
+        );
+        return snapshotRepository.save(entity);
     }
 }

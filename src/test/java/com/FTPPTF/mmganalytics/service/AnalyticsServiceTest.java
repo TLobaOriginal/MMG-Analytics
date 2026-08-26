@@ -3,11 +3,15 @@ package com.FTPPTF.mmganalytics.service;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.time.Instant;
+import java.util.Optional;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.transaction.annotation.Transactional;
+
+import com.FTPPTF.mmganalytics.model.AnalyticsSnapshotEntity;
+import com.FTPPTF.mmganalytics.repository.AnalyticsSnapshotRepository;
 
 /**
  * Proves the effect, not just the delivery, of the event pipeline:
@@ -28,6 +32,9 @@ class AnalyticsServiceTest {
 
     @Autowired
     private AnalyticsService analyticsService;
+
+    @Autowired
+    private AnalyticsSnapshotRepository snapshotRepository;
 
     @Test
     void creatingASubscriptionIncreasesTotalSubscriptions() {
@@ -75,5 +82,23 @@ class AnalyticsServiceTest {
             .as("generatedAt should be a real, current timestamp, not left unset")
             .isAfterOrEqualTo(before.generatedAt())
             .isBeforeOrEqualTo(Instant.now());
+    }
+
+    @Test
+    void savingASnapshotPersistsItToTheDatabase() {
+        subscriptionService.createSubscription("userSnap");
+
+        AnalyticsSnapshot expected = analyticsService.getSnapshot();
+        AnalyticsSnapshotEntity saved = analyticsService.saveSnapshot();
+
+        assertThat(saved.getId()).isNotNull();
+
+        Optional<AnalyticsSnapshotEntity> reloaded = snapshotRepository.findById(saved.getId());
+        assertThat(reloaded)
+            .as("saveSnapshot() should leave a row that can be read back from the database")
+            .isPresent();
+        assertThat(reloaded.get().getTotalSubscriptions()).isEqualTo(expected.totalSubscriptions());
+        assertThat(reloaded.get().getTotalUnsubscriptions()).isEqualTo(expected.totalUnsubscriptions());
+        assertThat(reloaded.get().getNetGrowth()).isEqualTo(expected.netGrowth());
     }
 }
